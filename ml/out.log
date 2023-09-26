@@ -1,0 +1,187 @@
+
+R version 4.2.2 (2022-10-31) -- "Innocent and Trusting"
+Copyright (C) 2022 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu (64-bit)
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+> #library(magrittr)
+> library(dplyr)
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+> library(purrr)
+> library(forcats)
+> library(tidyr)
+> library(modelr)
+> library(ggdist)
+> library(tidybayes)
+> library(ggplot2)
+> library(cowplot)
+> library(rstan)
+Loading required package: StanHeaders
+rstan (Version 2.21.8, GitRev: 2e1f913d3ca3)
+For execution on a local, multicore CPU with excess RAM we recommend calling
+options(mc.cores = parallel::detectCores()).
+To avoid recompilation of unchanged Stan programs, we recommend calling
+rstan_options(auto_write = TRUE)
+
+Attaching package: ‘rstan’
+
+The following object is masked from ‘package:tidyr’:
+
+    extract
+
+> library(brms)
+Loading required package: Rcpp
+Loading 'brms' package (version 2.19.0). Useful instructions
+can be found by typing help('brms'). A more detailed introduction
+to the package is available through vignette('brms_overview').
+
+Attaching package: ‘brms’
+
+The following object is masked from ‘package:rstan’:
+
+    loo
+
+The following objects are masked from ‘package:tidybayes’:
+
+    dstudent_t, pstudent_t, qstudent_t, rstudent_t
+
+The following objects are masked from ‘package:ggdist’:
+
+    dstudent_t, pstudent_t, qstudent_t, rstudent_t
+
+The following object is masked from ‘package:stats’:
+
+    ar
+
+> #library(ggrepel)
+> #library(RColorBrewer)
+> #library(gganimate)
+> #library(posterior)
+> #library(distributional)
+> 
+> set.seed(0)
+> source("_library.r")
+
+Attaching package: ‘rstatix’
+
+The following object is masked from ‘package:stats’:
+
+    filter
+
+> df <- read.csv("./study_p_5_5_psd_bp_notch_avgref.csv")
+> df <- preprocess(df)
+Warning message:
+Using an external vector in selections was deprecated in tidyselect 1.1.0.
+ℹ Please use `all_of()` or `any_of()` instead.
+  # Was:
+  data %>% select(keys_to_drop)
+
+  # Now:
+  data %>% select(all_of(keys_to_drop))
+
+See <https://tidyselect.r-lib.org/reference/faq-external-vector.html>. 
+> df <- remove_outliers(df)
+Warning message:
+Using an external vector in selections was deprecated in tidyselect 1.1.0.
+ℹ Please use `all_of()` or `any_of()` instead.
+  # Was:
+  data %>% select(col)
+
+  # Now:
+  data %>% select(all_of(col))
+
+See <https://tidyselect.r-lib.org/reference/faq-external-vector.html>. 
+> df <- make_long(df)
+> df <- df %>% filter(pid != "92511e53") # drop this participant - they are way better than everyone else. 
+> 
+> df <- df %>% select(-c(elo_bin))
+> 
+> # we want averages per-puzzle, by way of wavelength and probe. 
+> df <- df %>% group_by(pid, unique_id, probe, wavelength) %>%
++                 summarise(avg  = mean(value, na.rm = TRUE),
++                           sd   = sd(value, na.rm = TRUE),
++                           elo  = mean(elo, na.rm = TRUE)) %>% 
++                 ungroup()
+`summarise()` has grouped output by 'pid', 'unique_id', 'probe'. You can
+override using the `.groups` argument.
+> 
+> df <- df %>% mutate(wavelength = as.factor(wavelength),
++                     probe = as.factor(probe),
++                     pid = as.factor(pid))
+> 
+> 
+> df <- df %>% mutate(elo = scales::rescale(elo, to = c(0, 1)))
+> 
+> 
+> model <- brms::brm(elo ~ wavelength*avg + wavelength*sd + probe + (1 | pid), data=df, cores=4, control = list(adapt_delta = .99))
+Compiling Stan program...
+Start sampling
+
+SAMPLING FOR MODEL '4f809339ddb79673b0a4891a8c941fd9' NOW (CHAIN 1).
+Chain 1: 
+Chain 1: Gradient evaluation took 0 seconds
+Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0 seconds.
+Chain 1: Adjust your expectations accordingly!
+Chain 1: 
+Chain 1: 
+Chain 1: Iteration:    1 / 2000 [  0%]  (Warmup)
+
+SAMPLING FOR MODEL '4f809339ddb79673b0a4891a8c941fd9' NOW (CHAIN 2).
+Chain 2: 
+Chain 2: Gradient evaluation took 0.02 seconds
+Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 200 seconds.
+Chain 2: Adjust your expectations accordingly!
+Chain 2: 
+Chain 2: 
+
+SAMPLING FOR MODEL '4f809339ddb79673b0a4891a8c941fd9' NOW (CHAIN 3).
+Chain 2: Iteration:    1 / 2000 [  0%]  (Warmup)
+Chain 3: 
+Chain 3: Gradient evaluation took 0.01 seconds
+Chain 3: 1000 transitions using 10 leapfrog steps per transition would take 100 seconds.
+Chain 3: Adjust your expectations accordingly!
+Chain 3: 
+Chain 3: 
+Chain 3: Iteration:    1 / 2000 [  0%]  (Warmup)
+
+SAMPLING FOR MODEL '4f809339ddb79673b0a4891a8c941fd9' NOW (CHAIN 4).
+Chain 4: 
+Chain 4: Gradient evaluation took 0.01 seconds
+Chain 4: 1000 transitions using 10 leapfrog steps per transition would take 100 seconds.
+Chain 4: Adjust your expectations accordingly!
+Chain 4: 
+Chain 4: 
+Chain 4: Iteration:    1 / 2000 [  0%]  (Warmup)
+Chain 4: Iteration:  200 / 2000 [ 10%]  (Warmup)
+Chain 1: Iteration:  200 / 2000 [ 10%]  (Warmup)
+Chain 3: Iteration:  200 / 2000 [ 10%]  (Warmup)
+Chain 2: Iteration:  200 / 2000 [ 10%]  (Warmup)
+Chain 4: Iteration:  400 / 2000 [ 20%]  (Warmup)
+Chain 3: Iteration:  400 / 2000 [ 20%]  (Warmup)
+Chain 1: Iteration:  400 / 2000 [ 20%]  (Warmup)
+Chain 2: Iteration:  400 / 2000 [ 20%]  (Warmup)
+
+Execution halted

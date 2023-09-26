@@ -1,0 +1,53 @@
+
+R version 4.2.2 (2022-10-31) -- "Innocent and Trusting"
+Copyright (C) 2022 The R Foundation for Statistical Computing
+Platform: x86_64-pc-linux-gnu (64-bit)
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+  Natural language support but running in an English locale
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+> library(brms)
+Loading required package: Rcpp
+Loading 'brms' package (version 2.19.0). Useful instructions
+can be found by typing help('brms'). A more detailed introduction
+to the package is available through vignette('brms_overview').
+
+Attaching package: ‘brms’
+
+The following object is masked from ‘package:stats’:
+
+    ar
+
+> 
+> load("DF.RData")
+> 
+> model <- brms::brm(elo ~ wavelength + avg + sd + probe + (1 | pid), 
++ 		   data=df, threads=threading(4), cores=4, 
++ 		   control = list(adapt_delta = .99)) 
+Compiling Stan program...
+make cmd is
+  make -f '/cluster/tufts/hpc/tools/spack/0.17.1/spack/opt/spack/linux-rhel7-ivybridge/gcc-7.3.0/r-4.2.2-ozp4lq6j6pyw7e4ychimlwbs7dxwmsps/rlib/R/etc/Makeconf' -f '/cluster/tufts/hpc/tools/spack/0.17.1/spack/opt/spack/linux-rhel7-ivybridge/gcc-7.3.0/r-4.2.2-ozp4lq6j6pyw7e4ychimlwbs7dxwmsps/rlib/R/share/make/shlib.mk' CXX='$(CXX14) $(CXX14STD)' CXXFLAGS='$(CXX14FLAGS)' CXXPICFLAGS='$(CXX14PICFLAGS)' SHLIB_LDFLAGS='$(SHLIB_CXX14LDFLAGS)' SHLIB_LD='$(SHLIB_CXX14LD)' SHLIB='filefda576394c84.so' OBJECTS='filefda576394c84.o'
+
+make would use
+/opt/shared/gcc/7.3.0/bin/g++ -std=gnu++14 -I"/cluster/tufts/hpc/tools/spack/0.17.1/spack/opt/spack/linux-rhel7-ivybridge/gcc-7.3.0/r-4.2.2-ozp4lq6j6pyw7e4ychimlwbs7dxwmsps/rlib/R/include" -DNDEBUG   -I"/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/Rcpp/include/"  -I"/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/RcppEigen/include/"  -I"/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/RcppEigen/include/unsupported"  -I"/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/BH/include" -I"/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/StanHeaders/include/src/"  -I"/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/StanHeaders/include/"  -I"/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/RcppParallel/include/"  -I"/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/rstan/include" -DEIGEN_NO_DEBUG  -DBOOST_DISABLE_ASSERTS  -DBOOST_PENDING_INTEGER_LOG2_HPP  -DSTAN_THREADS  -DUSE_STANC3 -DSTRICT_R_HEADERS  -DBOOST_PHOENIX_NO_VARIADIC_EXPRESSION  -DBOOST_NO_AUTO_PTR  -include '/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/StanHeaders/include/stan/math/prim/fun/Eigen.hpp'  -D_REENTRANT -DRCPP_PARALLEL_USE_TBB=1   -I/usr/local/include   -fpic  -g -O2  -c filefda576394c84.cpp -o filefda576394c84.o
+if test  "zfilefda576394c84.o" != "z"; then \
+  echo /opt/shared/gcc/7.3.0/bin/g++ -std=gnu++14 -shared -L"/cluster/tufts/hpc/tools/spack/0.17.1/spack/opt/spack/linux-rhel7-ivybridge/gcc-7.3.0/r-4.2.2-ozp4lq6j6pyw7e4ychimlwbs7dxwmsps/rlib/R/lib" -L/cluster/tufts/hpc/tools/spack/0.17.1/spack/opt/spack/linux-rhel7-ivybridge/gcc-7.3.0/r-4.2.2-ozp4lq6j6pyw7e4ychimlwbs7dxwmsps/rlib/R/lib -Wl,-rpath,/cluster/tufts/hpc/tools/spack/0.17.1/spack/opt/spack/linux-rhel7-ivybridge/gcc-7.3.0/r-4.2.2-ozp4lq6j6pyw7e4ychimlwbs7dxwmsps/rlib/R/lib -o filefda576394c84.so filefda576394c84.o  '/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/rstan/lib//libStanServices.a' -L'/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/StanHeaders/lib/' -lStanHeaders -L'/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/RcppParallel/lib/' -ltbb   -L"/cluster/tufts/hpc/tools/spack/0.17.1/spack/opt/spack/linux-rhel7-ivybridge/gcc-7.3.0/r-4.2.2-ozp4lq6j6pyw7e4ychimlwbs7dxwmsps/rlib/R/lib" -lR; \
+  /opt/shared/gcc/7.3.0/bin/g++ -std=gnu++14 -shared -L"/cluster/tufts/hpc/tools/spack/0.17.1/spack/opt/spack/linux-rhel7-ivybridge/gcc-7.3.0/r-4.2.2-ozp4lq6j6pyw7e4ychimlwbs7dxwmsps/rlib/R/lib" -L/cluster/tufts/hpc/tools/spack/0.17.1/spack/opt/spack/linux-rhel7-ivybridge/gcc-7.3.0/r-4.2.2-ozp4lq6j6pyw7e4ychimlwbs7dxwmsps/rlib/R/lib -Wl,-rpath,/cluster/tufts/hpc/tools/spack/0.17.1/spack/opt/spack/linux-rhel7-ivybridge/gcc-7.3.0/r-4.2.2-ozp4lq6j6pyw7e4ychimlwbs7dxwmsps/rlib/R/lib -o filefda576394c84.so filefda576394c84.o  '/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/rstan/lib//libStanServices.a' -L'/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/StanHeaders/lib/' -lStanHeaders -L'/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/RcppParallel/lib/' -ltbb   -L"/cluster/tufts/hpc/tools/spack/0.17.1/spack/opt/spack/linux-rhel7-ivybridge/gcc-7.3.0/r-4.2.2-ozp4lq6j6pyw7e4ychimlwbs7dxwmsps/rlib/R/lib" -lR; \
+fi
+Error in compileCode(f, code, language = language, verbose = verbose) : 
+  /cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/RcppEigen/include/Eigen/src/Core/MapBase.h:37:34:   required from ‘class Eigen::MapBase<Eigen::Map<const Eigen::Matrix<double, -1, 1>, 0, Eigen::Stride<0, 0> >, 0>’/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/RcppEigen/include/Eigen/src/Core/Map.h:94:79:   required from ‘class Eigen::Map<const Eigen::Matrix<double, -1, 1>, 0, Eigen::Stride<0, 0> >’/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/StanHeaders/include/src/stan/io/reader.hpp:37:45:   required from ‘class stan::io::reader<double>’filefda576394c84.cpp:692:15:   required from here/cluster/home/mrusse06/R/x86_64-pc-linux-gnu-library/4.2/RcppEigen/include/Eigen/src/Core/DenseCoeffsBase.h:55:30: warning: ignoring attributes on template argument ‘Eigen::internal::packet_traits<double>::type {aka __vector(2) double}’ [-Wignored-attributes]make: *** [filefda576394c84.o] Interrupt
+Calls: <Anonymous> ... cxxfunctionplus -> <Anonymous> -> cxxfunction -> compileCode
+Error in sink(type = "output") : invalid connection
+Calls: <Anonymous> ... eval2 -> eval -> eval -> .fun -> cxxfunctionplus -> sink
+Execution halted

@@ -1,0 +1,7 @@
+
+| formula run | stanplot | Gelman | posterior dist
+|-------------|----------|-------|----|
+| `elo ~ wavelength + avg + sd + probe + (1 \| pid)` | no divergences | some 1.01 | good
+<!-- 
+| `elo ~ 1 + (1 \| pid)` | didn't converge | |
+| `elo ~ wavelength + avg + sd + (1 \| pid)` | ? | some 1.01 | 340-1131 | -->

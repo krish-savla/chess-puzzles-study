@@ -1,0 +1,631 @@
+---
+title: 'Analysis of EEG data'
+author: 'Matthew Russell'
+output: html_document
+---
+
+# load libraries
+```{r}
+libs <- c('doParallel', 'dplyr', 'tidyr', 'lme4', 'brms', 'emmeans', 
+          'rstatix', 'caret', 'purrr', 'ez', 'performance','lmerTest', 'sampling')
+lapply(libs, require, character.only = TRUE)
+load("DF.RData")
+head(df)
+```
+
+# subsample data
+```{r}
+# lmer4 -> hetersketacity
+# AIC is 2x the glmer model. 
+# also, heteroscedacity is a problem with lmer model. 
+#model <- lmerTest::lmer(elo ~ wavelength + avg + sd + (1 | pid), data=df)
+
+# so now try glmer with binary data from bottom and top quartiles. 
+df2 <- df
+df2 <- df2 %>% filter(elo <= 1127 | elo >= 1533)
+df2 <- df2 %>% mutate(elo = scales::rescale(elo, to = c(0, 1)))
+df2 <- df2 %>% mutate(elo = ifelse (elo < 0.5, 0, 1))
+model <- glmer(elo ~ wavelength + avg + sd + probe + (1 | pid), data=df2, family="binomial")
+summary(model)
+
+# library(DHARMa)
+# Generate simulated residuals
+# simulated_resid <- simulateResiduals(fittedModel = model) 
+# why not go for bayesian test as well?
+bmodel <- brms::brm(elo ~ wavelength + avg + sd + probe + (1 | pid), data=df, cores=4, control = list(adapt_delta = .99))
+
+```
+
+```{r}
+library(magrittr)
+library(dplyr)
+library(purrr)
+library(forcats)
+library(tidyr)
+library(modelr)
+library(ggdist)
+library(tidybayes)
+library(ggplot2)
+library(cowplot)
+library(rstan)
+library(brms)
+library(ggrepel)
+library(RColorBrewer)
+library(gganimate)
+library(posterior)
+library(distributional)
+
+# TODO: develop priors for the various wavelengths dependent on:
+# 1) hypothesis given mental workload
+# 2) hypothesis given flow-states. 
+
+# https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0174949 - frontal theta activity in mental workload tasj, 
+# 
+#
+
+df$elo_bin <- as.factor(Hmisc::cut2(df$elo, g=2))
+
+# sd results show significance with wavelength:elo_bin
+sd_results <- ezANOVA( data=df, dv = sd, wid = pid, within = .(wavelength, elo_bin), detailed=TRUE, type=3)
+a_results <- ezANOVA( data=df, dv = avg, wid = pid, within = .(wavelength, elo_bin), detailed=TRUE, type=3)
+
+model <- brms::brm(elo ~ wavelength*avg + wavelength*sd + probe + (1 | pid), data=df, cores=4, control = list(adapt_delta = .99))
+save(model, file="elo ~ wavelength*avg + wavelength*sd + probe + (1 | pid)), data=df, cores=4, adapt_delta=0.99.RData")
+
+library(bayesplot)
+mcmc_areas(as.array(model), pars=c('b_Intercept', 'b_wavelengthdelta:avg', 'b_wavelengththeta:avg', 'b_wavelengthbeta:avg', 'b_wavelengthgamma:avg'), prob=0.95)
+
+pred_draws <- df %>% add_predicted_draws(model)
+
+summaries <- pred_draws %>%
+  group_by(wavelength, elo) %>% 
+   summarise(
+    .prediction_median = median(.prediction),
+    .prediction_lower = quantile(.prediction, .025),
+    .prediction_upper = quantile(.prediction, .975),
+    .width = c(.95),
+    .group = "prediction"
+  )
+
+df_subset <- df %>%
+  group_by(wavelength) %>%
+  sample_frac(0.1)  # change this to adjust the fraction of points to keep
+
+ggplot(df, aes(x = elo, y = avg)) +
+  geom_point(color = "green", size = 3) +
+  geom_ribbon(
+    data = summaries,
+    aes(ymin = .prediction_lower, ymax = .prediction_upper, y = .prediction_median),
+    alpha = 0.5,
+    color = "black",
+    fill = "grey"
+  ) +
+  facet_wrap(~ wavelength) +
+  labs(x = "elo", y = "Average brain data") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+
+model_fit <- df %>% 
+                add_predicted_draws(model) %>% 
+                ggplot(aes(x=elo, y = avg)) + 
+                stat_lineribbon(aes(y = .prediction),.width= c(.95,.80,.50), 
+                                    alpha=0.5, color="black") + 
+                geom_point(data=df, color="green", size = 3) + 
+                scale_fill_brewer(palette="Greys") + 
+                ylab("Average brain data") +
+                xlab("elo") +
+                theme_bw() + 
+                theme(legend.title = element_blank(), 
+                        legend.position=c(0.15, 0.85))
+
+model_fit <- model %>% 
+                add_predicted_draws() %>% 
+                ggplot(aes(x = elo, y = avg)) + 
+                geom_point(data = df, color = "green", size = 3) + 
+                stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50), 
+                                alpha = 0.5, color = "black") + 
+                ylab("Average brain data") +
+                xlab("elo") +
+                theme_bw() + 
+                theme(legend.title = element_blank(), 
+                      legend.position = c(0.15, 0.85))
+model_fit
+```
+
+# Machine Learning Prep
+```{r}
+library(mlr3)
+library(mlr3learners)
+library(mlr3pipelines)
+set.seed(0)
+df <- orig_df 
+
+# note: drop the probe-based data, and just keep wavelength
+df <- df %>% group_by(pid, unique_id, wavelength) %>%
+             summarise(avg  = mean(value, na.rm = TRUE),
+                       sd   = sd(value, na.rm = TRUE),
+                       elo  = mean(elo, na.rm = TRUE)) %>% 
+             ungroup()
+  
+# we don't need pid anymore
+df <- df %>% select(columns=-c(pid))
+
+# widen the data so one row per puzzle
+df <- df %>% pivot_wider(values_from=c("avg", "sd"), names_from="wavelength") %>% ungroup()
+
+# unique_id no longer needed
+df <- df %>% select(columns=-c(unique_id))
+
+# add features that are the proportion of alpha/beta, etc. 
+df <- df %>% mutate(alpha_beta     = avg_alpha / avg_beta,
+                    alpha_delta    = avg_alpha / avg_delta,
+                    alpha_gamma    = avg_alpha / avg_gamma,
+                    alpha_theta    = avg_alpha / avg_theta,
+                    beta_delta     = avg_beta  / avg_delta,
+                    beta_gamma     = avg_beta  / avg_gamma,
+                    beta_theta     = avg_beta  / avg_theta,
+                    delta_gamma    = avg_delta / avg_gamma,
+                    delta_theta    = avg_delta / avg_theta,
+                    gamma_theta    = avg_gamma / avg_theta,
+                    sd_alpha_beta  = sd_alpha / sd_beta,
+                    sd_alpha_delta = sd_alpha / sd_delta,
+                    sd_alpha_gamma = sd_alpha / sd_gamma,
+                    sd_alpha_theta = sd_alpha / sd_theta,
+                    sd_beta_delta  = sd_beta  / sd_delta,
+                    sd_beta_gamma  = sd_beta  / sd_gamma,
+                    sd_beta_theta  = sd_beta  / sd_theta,
+                    sd_delta_gamma = sd_delta / sd_gamma,
+                    sd_delta_theta = sd_delta / sd_theta,
+                    sd_gamma_theta = sd_gamma / sd_theta)
+```
+
+# Machine Learning - Ordinal classification
+```{r}
+results <- data.frame(LO_BINS = integer(),
+                      HI_BINS = integer(), 
+                      NUM_TRAIN = integer(), 
+                      NUM_TEST = integer(),
+                      MODEL = character(), 
+                      AUC = numeric())
+
+# we're using auc as the accuracy score. 
+measure    <- msr("classif.auc")
+task       <- TaskClassif$new(id = "my_task", backend = ml_df, target = "elo")
+resampling <- rsmp("cv", folds = 5)  # Define resampling
+
+for (learnerStr in c("classif.ranger", "classif.qda", "classif.naive_bayes", "classif.kknn", "classif.log_reg")) { # "classif.lda", "classif.svm")) {
+    resampling$instantiate(task)  
+    learner  <- lrn(learnerStr, predict_type = "prob")
+    pipeline <- po("scale") %>>% learner
+    rr       <- resample(task, learner, resampling, store_models = TRUE)
+    print(paste("Model:", learnerStr, "AUC:", rr$aggregate(measure)))
+    
+
+    NUM_TRAIN <- length(resampling$instance$row_id[resampling$instance$fold != 1])
+    NUM_TEST <- length(resampling$instance$row_id[resampling$instance$fold == 1])
+
+    results <- rbind(results, data.frame(
+        LO_BINS = paste(LO_BINS, collapse = "-"), 
+        HI_BINS = paste(HI_BINS, collapse = "-"), 
+        # each fold is the same (off by 1 at most), so just use the first one.
+        NUM_TRAIN = NUM_TRAIN,
+        NUM_TEST = length(resampling$instance$row_id[resampling$instance$fold == 1]),
+        TOTAL_SIZE = NUM_TRAIN + NUM_TEST,
+        MODEL   = learner$id, 
+        AUC     = rr$aggregate(measure)[[1]]
+    ))
+}
+print(results %>% arrange(desc(AUC)))
+
+```
+
+# Machine Learning - two way Classification
+```{r}
+# break the elo rating into 10 bins
+elo_bins <- cut(df$elo, breaks = quantile(df$elo, probs = seq(0, 1, by = 0.1)), include.lowest = TRUE, labels = FALSE)
+ALL_BINS = seq(1, 10)
+
+results <- data.frame(LO_BINS = integer(),
+                      HI_BINS = integer(), 
+                      NUM_TRAIN = integer(), 
+                      NUM_TEST = integer(),
+                      MODEL = character(), 
+                      AUC = numeric())
+# we want to keep the bottom 3 and top 3 bins -> 60% of the total data. 
+for (bin_amt in seq(0, 4)) {
+
+    ml_df <- df
+
+    LO_BINS   = seq(1, 5 - bin_amt)
+    HI_BINS   = seq(6 + bin_amt, 10)
+    LOHI_BINS = c(LO_BINS, HI_BINS)
+
+    #Subset the dataframe to keep only the top and bottom groups
+    ml_df <- ml_df[elo_bins %in% LOHI_BINS, ]
+    
+    # Then convert the new 'elo' variable into a factor
+    ml_df$elo <- as.factor(ifelse(elo_bins[elo_bins %in% LOHI_BINS] %in% LO_BINS, "Low", "High"))
+
+    # we're using auc as the accuracy score. 
+    measure    <- msr("classif.auc")
+    task       <- TaskClassif$new(id = "my_task", backend = ml_df, target = "elo")
+    resampling <- rsmp("cv", folds = 5)  # Define resampling
+
+    for (learnerStr in c("classif.ranger", "classif.qda", "classif.naive_bayes", "classif.kknn", "classif.log_reg")) { # "classif.lda", "classif.svm")) {
+        resampling$instantiate(task)  
+        learner  <- lrn(learnerStr, predict_type = "prob")
+        pipeline <- po("scale") %>>% learner
+        rr       <- resample(task, learner, resampling, store_models = TRUE)
+        print(paste("Model:", learnerStr, "AUC:", rr$aggregate(measure)))
+        
+
+        NUM_TRAIN <- length(resampling$instance$row_id[resampling$instance$fold != 1])
+        NUM_TEST <- length(resampling$instance$row_id[resampling$instance$fold == 1])
+
+        results <- rbind(results, data.frame(
+            LO_BINS = paste(LO_BINS, collapse = "-"), 
+            HI_BINS = paste(HI_BINS, collapse = "-"), 
+            # each fold is the same (off by 1 at most), so just use the first one.
+            NUM_TRAIN = NUM_TRAIN,
+            NUM_TEST = length(resampling$instance$row_id[resampling$instance$fold == 1]),
+            TOTAL_SIZE = NUM_TRAIN + NUM_TEST,
+            MODEL   = learner$id, 
+            AUC     = rr$aggregate(measure)[[1]]
+        ))
+    }
+}
+print(results %>% arrange(desc(AUC)))
+```
+
+# Machine Learning - three way classification
+```{r}
+# break the elo rating into 10 bins
+elo_bins <- cut(df$elo, breaks = quantile(df$elo, probs = seq(0, 1, by = 0.1)), include.lowest = TRUE, labels = FALSE)
+
+results <- data.frame(LO_BINS = integer(),
+                      HI_BINS = integer(), 
+                      NUM_TRAIN = integer(), 
+                      NUM_TEST = integer(),
+                      MODEL = character(), 
+                      AUC = numeric())
+# we want to keep the bottom 3 and top 3 bins -> 60% of the total data. 
+for (bin_amt in seq(1)) {
+
+    ml_df <- df
+
+    LO_BINS   = seq(1,3) # 5 - bin_amt)
+    MED_BINS  = seq(4, 6) # - bin_amt + 1, 5 + bin_amt - 1)
+    HI_BINS   = seq(7, 10) #6 + bin_amt, 10)
+    LOHI_BINS = c(LO_BINS, HI_BINS)
+
+    #ml_df$elo <- elo_bins #as.factor(ifelse(elo_bins %in% LO_BINS, "Low", "High"))
+    ml_df$elo <- as.factor(ifelse(elo_bins %in% LO_BINS, "Low", ifelse(elo_bins %in% MED_BINS, "Med", "High")))
+
+    # #Subset the dataframe to keep only the top and bottom groups
+    # ml_df <- ml_df[elo_bins %in% LOHI_BINS, ]
+    
+    # Then convert the new 'elo' variable into a factor
+   # ml_df$elo <- as.factor(ifelse(elo_bins[elo_bins %in% LOHI_BINS] %in% LO_BINS, "Low", "High"))
+
+    # we're using auc as the accuracy score. 
+    measure    <- msr("classif.acc") #"classif.auc")
+    task       <- TaskClassif$new(id = "my_task", backend = ml_df, target = "elo")
+    resampling <- rsmp("cv", folds = 5)  # Define resampling
+
+    for (learnerStr in c("classif.ranger", "classif.qda", "classif.naive_bayes", "classif.kknn")) { # "classif.lda", "classif.svm")) {
+        resampling$instantiate(task)  
+        learner  <- lrn(learnerStr, predict_type = "response") #"prob") #, seed=0)
+        pipeline <- po("scale") %>>% learner
+        rr       <- resample(task, learner, resampling, store_models = TRUE) #, seed=0)
+        print(paste("Model:", learnerStr, "Fbeta:", rr$aggregate(measure)))
+        
+
+        NUM_TRAIN <- length(resampling$instance$row_id[resampling$instance$fold != 1])
+        NUM_TEST <- length(resampling$instance$row_id[resampling$instance$fold == 1])
+
+        results <- rbind(results, data.frame(
+            LO_BINS = paste(LO_BINS, collapse = "-"), 
+            HI_BINS = paste(HI_BINS, collapse = "-"), 
+            # each fold is the same (off by 1 at most), so just use the first one.
+            NUM_TRAIN = NUM_TRAIN,
+            NUM_TEST = NUM_TEST,
+            TOTAL_SIZE = NUM_TRAIN + NUM_TEST,
+            MODEL   = learner$id, 
+            AUC     = rr$aggregate(measure)[[1]]
+        ))
+    }
+}
+print(results %>% arrange(desc(AUC)))
+
+
+```
+
+
+```
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(lme4)
+library(brms)
+library(broom)
+library(emmeans)
+library(broom.mixed)
+library(rstatix)
+library(caret)
+library(caTools)
+library(r2r)
+library(purrr)
+library(ez)
+library(performance)
+library(lmerTest)
+library(DHARMa) # heteroskedacity
+#NOTE: This IS USED to preprocess the data. But after saving we can just load the df.
+set.seed(0)
+source("_library.r")
+df <- read.csv("./study_p_5_5_psd_bp_notch_avgref.csv")
+df <- preprocess(df)
+df <- remove_outliers(df)
+df <- make_long(df)
+df <- df %>% filter(pid != "92511e53") # drop this participant - they are way better than everyone else. 
+df <- orig_df 
+
+df <- df %>% select(-c(elo_bin))
+
+# we want averages per-puzzle, by way of wavelength and probe. 
+df <- df %>% group_by(pid, unique_id, probe, wavelength) %>%
+                summarise(avg  = mean(value, na.rm = TRUE),
+                          sd   = sd(value, na.rm = TRUE),
+                          elo  = mean(elo, na.rm = TRUE)) %>% 
+                ungroup()
+
+df <- df %>% mutate(wavelength = as.factor(wavelength),
+                    probe = as.factor(probe),
+                    pid = as.factor(pid), 
+                    unique_id = as.factor(unique_id))
+
+
+#df <- df %>% mutate(elo = scales::rescale(elo, to = c(0, 1)))
+
+save(df, file="DF.RData")
+```
+
+
+GRAVEYARD
+```{r}
+# TRIED THESE FOR ML, BUT THEY DIDN'T HELP
+# dropping plain avg / sd columns 
+# df <- df %>% select(columns=-c(avg_alpha, avg_beta, avg_delta, avg_gamma, avg_theta,
+#                                 sd_alpha, sd_beta, sd_delta, sd_gamma, sd_theta))
+#
+#"classif.log_reg" -> doesn't do multiclass and data wasn't good
+#
+
+# normalizing across rows. 
+# df <- df %>% mutate(avg_alpha = avg_alpha / (avg_alpha + avg_beta + avg_delta + avg_gamma + avg_theta),
+#                     avg_beta = avg_beta / (avg_alpha + avg_beta + avg_delta + avg_gamma + avg_theta),
+#                     avg_delta = avg_delta / (avg_alpha + avg_beta + avg_delta + avg_gamma + avg_theta),
+#                     avg_gamma = avg_gamma / (avg_alpha + avg_beta + avg_delta + avg_gamma + avg_theta),
+#                     avg_theta = avg_theta / (avg_alpha + avg_beta + avg_delta + avg_gamma + avg_theta)
+# )
+
+
+
+# THESE STATISTICS, TRIED BUT DIDN'T GO WITH
+
+# don't filter! (with lme from nlme)
+#df <- df %>% filter(elo >= 900 & elo <= 1700)
+# LMER is okay because ELO is really a continuous measure. 
+#df <- df %>% mutate(elo = log10(elo))
+#df <- df %>% mutate(elo = scales::rescale(elo, to = c(0, 1)))
+# try overnight
+#modelLMER <- lmerTest::lmer(elo ~ wavelength + avg + sd + probe + (1 + avg*sd*probe*wavelength | pid), data=df)
+
+
+
+# attempt to subsample the data to deal with large # of <1000 elo samples, but to no avail, heteroscedatcity still a problem
+# Get the ELO ratings associated with each unique ID
+df_unique <- df %>% dplyr::select(unique_id, elo) %>% distinct()
+
+# Create elo bins
+elo_bins = cut(df_unique$elo, breaks = seq(800, 2000, by = 50))  # Adjust the breaks as needed
+df_unique$elo_bin = elo_bins
+
+# Calculate the mean and standard deviation of the elo ratings
+elo_mean <- mean(df_unique$elo)
+elo_sd <- sd(df_unique$elo)
+
+# Initialize an empty data frame to hold the final data
+df_balanced <- df_unique[0, ]
+
+# Loop over each bin
+for (elo_bin in levels(df_unique$elo_bin)) {
+  
+  # Subset the data for the current bin
+  df_bin <- df_unique[df_unique$elo_bin == elo_bin, ]
+  
+  # Determine the elo rating that represents the middle of the current bin
+  elo_mid <- mean(as.numeric(gsub("\\(|\\]|,", "", strsplit(as.character(elo_bin), ",")[[1]])))
+
+  # Calculate the cumulative distribution function (CDF) for the middle elo rating
+  cdf <- pnorm(elo_mid, mean = elo_mean, sd = elo_sd)
+  
+  # Determine the number of samples to keep based on the CDF
+  n_keep <- round(cdf * nrow(df_bin))
+  
+  # If the number of samples to keep is less than the number of samples in the bin, randomly select a subset of samples
+  if (n_keep < nrow(df_bin)) {
+    df_bin <- df_bin[sample(nrow(df_bin), n_keep), ]
+  }
+  
+  # Add the data for the current bin to the final data
+  df_balanced <- rbind(df_balanced, df_bin)
+}
+
+df_subsampled <- dplyr::inner_join(df, df_balanced, by = "unique_id")
+df_subsampled$elo <- df_subsampled$elo.x 
+df_subsampled <- dplyr::select(df_subsampled, -elo.x, -elo.y, -elo_bin.x, -elo_bin.y)
+
+#df_subsampled <- df_subsampled %>% mutate(elo = sqrt(elo))
+df_subsampled <- df_subsampled %>% mutate(elo = scales::rescale(elo, to = c(0, 1)))
+
+
+# https://www.statisticssolutions.com/free-resources/directory-of-statistical-analyses/normality/
+# There are few consequences associated with a violation of the normality assumption, 
+# as it does not contribute to bias or inefficiency in regression models.  
+# It is only important for the calculation of p values for significance testing, 
+# but this is only a consideration when the sample size is very small.  
+# When the sample size is sufficiently large (>200), the normality assumption is not needed at
+# all as the Central Limit Theorem ensures that the distribution of residuals will approximate
+# normality.
+
+# # model2 looks okay! don't do transform
+#model2 <- nlme::nlme(elo ~ wavelength + avg + sd + probe, random = ~1 | pid, data = df)
+
+# lme with non-constant variance for heterskdacity
+#model3 <- nlme::lme(elo ~ wavelength + avg + sd + probe, random = ~1 | pid, weights = varIdent(form = ~1 | probe), data = df)
+#model2 <- lme(elo ~ wavelength + avg + sd + probe, random = ~1 | pid, data = df)
+# check_model(model2) 
+
+
+
+# standardize data to deal with collinearity across wavelengths.  
+# df <- df %>%
+#   group_by(pid, probe) %>%
+#   mutate(value_scaled = scale(value)) %>% 
+#   ungroup()
+
+#
+# LMER works, but expected output is not ordinal, as it is with CLMM - that said results are similar
+# modelLMER <- lmerTest::lmer(elo ~ wavelength + avg + sd + probe + (1 | pid), data = df)
+# # looks like the KS test indicates that the residuals are non-normal, but the 
+# # dispersion demonstrates that heteroskedacity isn't a problem. 
+# res <- simulateResiduals(fittedModel = modelLMER)
+# testDispersion(res)
+
+# emmeans_wavelength <- emmeans(modelLMER, specs="wavelength")
+# summary(pairs(emmeans_wavelength), adjust = "bonferroni")
+
+# emmeans_probe <- emmeans(model, specs=c("probe"))
+# summary(pairs(emmeans_probe), adjust = "bonferroni")
+
+
+
+# # proportional odds assumption fails for the dataset
+# mdlCLM <- ordinal::clm(elo ~ wavelength + avg + sd, data=df)
+# ordinal::nominal_test(mdlCLM)
+
+# modelCLMM <- ordinal::clmm(elo ~ wavelength + avg + sd + (1 | pid), data = df)
+# em_clm_wl <- emmeans(modelCLMM, specs="wavelength")
+# summary(pairs(em_clm_wl), adjust = "bonferroni")
+
+# library(glmmTMB)
+# modelGLMMTMB <- glmmTMB(elo ~ wavelength + avg + sd + (1 | pid), data = df, family = "binomial")
+
+
+# model0 <- lmerTest::lmer(elo ~ wavelength + avg + (1 | pid), data=df)
+# model1 <- lmerTest::lmer(elo ~ wavelength + avg + sd + (1 | pid), data=df)
+# model2 <- lmerTest::lmer(elo ~ wavelength + avg + sd + probe + (1 | pid), data=df)
+# model3 <- lmerTest::lmer(elo ~ wavelength*avg + sd + probe + (1 | pid), data=df)
+# model4 <- lmerTest::lmer(elo ~ wavelength*avg + wavelength*sd + probe + (1 | pid) + (1 | probe), data=df)
+# model5 <- lmerTest::lmer(elo ~ wavelength*avg + wavelength*sd + probe + (1 | pid), data=df)
+
+model.sel(model0, model1, model2, model3) #, model2, model3, model4, model5)
+
+
+# library(ez)
+
+# df$elo_bin <- as.factor(Hmisc::cut2(df$elo, g=4))  # create elo bins
+
+# # Conduct the ANOVA
+# anova_results <- ezANOVA(
+#   data = df,
+#   dv = avg,  # dependent variable
+#   wid = pid,  # subject identifier
+#   within = .(elo_bin, wavelength),  # within-subject variables
+#   detailed = TRUE,  # provide detailed output
+#   type = 3  # use Type III sum of squares
+# )
+# anova_results
+
+
+```
+
+```{r}
+# PLOT DATA
+
+
+# library(fitdistrplus)
+# fitdistrplus::descdist(df$elo, boot=1000)
+# fit.norm <- fitdist(df$elo, "norm")
+
+library(ggplot2)
+
+#df$elo_category <- cut(df$elo, breaks = 3, labels = c("low", "medium", "high"))
+df$elo_category = Hmisc::cut2(df$elo, g=4)
+# Create boxplots
+p <- ggplot(df, aes(x = elo_category, y = avg, fill = elo_category)) +
+  geom_boxplot() +
+  labs(x = "ELO Category", y = "Average brain data", fill = "ELO Category") +
+  facet_wrap(~wavelength, scales = "free_y") +
+  theme_bw()
+
+p + stat_compare_means(comparisons = list(c("Low", "Med"), c("Med", "High")), 
+                       label = "p.signif", label.y = max(df$avg))
+
+  # Create boxplots
+ggplot(df, aes(x = elo_category, y = sd, fill = elo_category)) +
+  geom_boxplot() +
+  labs(x = "ELO Category", y = "Average brain data", fill = "ELO Category") +
+  facet_wrap(~wavelength, scales = "free_y") +
+  theme_bw()
+
+
+
+
+# # various assumptions are close enough to being met on further investigation;  ###lmer fails due to heteroscedacity
+#df <- df %>% filter(elo >= 1000 & elo <= 1600)
+#df$elo <- 1/df$elo # reciprocal transformation
+#df$elo <- MASS::boxcox(df$elo)$x
+
+#df$movenum <- as.factor(str_extract(df$unique_id, "(?<=_)[0-9]+$"))
+model1 <- lmerTest::lmer(elo ~ wavelength + avg + sd + (1 | pid) + (1 | unique_id), data=df)
+check_model(model1)
+pairs(emmeans(model1, specs="wavelength"), adjust = "bonferroni")
+
+
+library(WeMix)
+library(stringr)
+
+# Create a new column 'weights' by extracting the numbers after underscore in 'unique_id'
+df$weights <- as.numeric(str_extract(df$unique_id, "(?<=_)[0-9]+$"))
+df$group_weights <- 1
+mdl_wemix <- mix(elo ~ wavelength + avg + sd + (1 | pid), data=df, weights=c('weights', 'group_weights'))
+
+# looks like the KS test indicates that the residuals are non-normal, but the 
+# dispersion demonstrates that heteroskedacity isn't a problem. 
+check_model(model1)
+res <- simulateResiduals(fittedModel = model1)
+testDispersion(res)
+
+emmeans_wavelength <- emmeans(model1, specs="wavelength")
+summary(pairs(emmeans_wavelength), adjust = "bonferroni")
+plot(emmeans_wavelength)
+
+# first, let's make the results into a dataframe
+pairwise <- summary(pairs(emmeans_wavelength), adjust = "bonferroni")
+
+emmeans_summary <- summary(emmeans_wavelength)
+
+resid_df <- data.frame(fitted=fitted(model1), 
+                       residuals=resid(model1))
+
+# Create a scatterplot of residuals vs. predicted ELO
+ggplot(resid_df, aes(x = fitted, y = residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  xlab("Predicted ELO") +
+  ylab("Residuals (Observed - Predicted ELO)") +
+  ggtitle("Residual Plot")
+  ```

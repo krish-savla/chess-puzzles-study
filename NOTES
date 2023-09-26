@@ -1,0 +1,6 @@
+participant f8527578 has a problem with their data - data/chess didn't exist, and somehow the datastream became corrupted :(
+    for this participant, max good data is f8527578_65_1681935916432.797.json, which has the first ~10 minutes of data. 
+
+p5c1034cf -> am_0x0
+
+TODO: check on e02a... in pilot with 189 samples

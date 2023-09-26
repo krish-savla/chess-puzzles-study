@@ -1,3 +1,6 @@
 1) install node / npm 
 2) npm install .
 3) ./run_servers.sh
+
+Front-end work (javascript) done by me using chess.js, chessboard.js.
+Backend (python) work done by matt russell (phD candidate at Tufts)

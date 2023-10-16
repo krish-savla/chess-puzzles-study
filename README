@@ -1,6 +1,12 @@
+Code for a study in the human-computer interactions lab, where we tried to gauge 
+brain acitivity using a muse device of participants while they solved chess puzzles.
+Front-end work (javascript) done by me using chess.js, chessboard.js.
+Backend and data collection work done by matt russell (phD candidate at Tufts)
+
+
 1) install node / npm 
 2) npm install .
 3) ./run_servers.sh
 
-Front-end work (javascript) done by me using chess.js, chessboard.js.
-Backend and data collection work done by matt russell (phD candidate at Tufts)
+NOTE: there are some missing data files which were too big to upload to the github,
+please email me (krish.savla@tufts.edu) if you require these
